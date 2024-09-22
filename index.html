@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AroundSet</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #f0f0f0;
+        }
+        h3, h4, label, p {
+            color: #ffffff;
+        }
+        #map {
+            height: 600px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        input, select, button {
+            margin: 5px 0;
+            padding: 10px;
+            background-color: #333;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        input::placeholder {
+            color: #aaa;
+        }
+        button:hover {
+            background-color: #444;
+            cursor: pointer;
+        }
+        #controls {
+            margin: 10px;
+        }
+        .section {
+            margin: 20px 0;
+        }
+        #layer-controls {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+        }
+        #coordinates-display {
+            margin-top: 10px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h3>AroundSet</h3>
+
+    <!-- Seção 1: Posição do Usuário -->
+    <div id="user-position" class="section">
+        <label for="username">Digite seu nome:</label>
+        <input id="username" type="text" placeholder="Digite seu nome">
+        <button id="current-position-btn">Posição Atual</button>
+    </div>
+
+    <!-- Seção 2: Geofence -->
+    <div id="geofence-section" class="section">
+        <h4>Geofence</h4>
+        <label for="geofence-radius">Raio em metros:</label>
+        <input id="geofence-radius" type="number" placeholder="Raio em metros">
+        <button id="create-geofence-btn">Criar Geofence</button>
+    </div>
+
+    <!-- Seção 3: Rastreamento -->
+    <div id="tracking-section" class="section">
+        <h4>Rastreamento</h4>
+        <label for="tracking-interval">Intervalo de Rastreamento:</label>
+        <select id="tracking-interval">
+            <option value="5000">5 segundos</option>
+            <option value="10000">10 segundos</option>
+            <option value="30000">30 segundos</option>
+        </select>
+        <button id="start-tracking-btn">Iniciar Rastreamento</button>
+        <button id="stop-tracking-btn">Parar Rastreamento</button>
+        <br><br>
+        <button id="export-tracking-geojson-btn">Exportar GeoJSON Rastreamento</button>
+    </div>
+
+    <!-- Seção 4: Mapa -->
+    <div id="map"></div>
+
+    <!-- Seção 5: Busca de PoIs -->
+    <div id="poi-section" class="section">
+        <h4>Busca de Pontos de Interesse (PoIs)</h4>
+        <input id="address-input" type="text" placeholder="Digite um endereço">
+        <button id="use-user-location-btn">Usar Posição do Usuário</button>
+        <button id="search-address-btn">Pesquisar Endereço</button>
+        <br>
+        <label for="search-radius">Raio de Pesquisa em metros:</label>
+        <input id="search-radius" type="number" placeholder="Raio de pesquisa">
+        <br>
+        <p>Selecione ao menos uma categoria:</p>
+        <select id="poi-select" multiple size="10">
+            <option value="restaurant">Restaurantes</option>
+            <option value="cafe">Cafés</option>
+            <option value="museum">Museus</option>
+            <option value="art_gallery">Galerias de Arte</option>
+            <option value="theatre">Teatros</option>
+            <option value="park">Parques</option>
+            <option value="monument">Monumentos</option>
+            <option value="cinema">Cinemas</option>
+            <option value="supermarket">Supermercados</option>
+            <option value="fuel">Postos de Combustível</option>
+            <option value="pharmacy">Farmácias</option>
+            <option value="bank">Bancos</option>
+            <option value="post_office">Correios</option>
+        </select>
+        <br><br>
+        <button id="execute-poi-search-btn">Executar Pesquisa</button>
+        <br><br>
+        <button id="export-pois-geojson-btn">Exportar GeoJSON PoIs</button>
+    </div>
+
+    <!-- Seção 6: Cálculo de Rotas -->
+    <div id="route-section" class="section">
+        <h4>Cálculo de Rotas</h4>
+        <label for="destination-input">Digite o destino (Endereço ou Coordenadas):</label>
+        <input id="destination-input" type="text" placeholder="Ex: Avenida Paulista, São Paulo ou -23.564, -46.654">
+        <button id="calculate-route-btn">Calcular Rota</button>
+    </div>
+
+    <!-- Controles de Camadas e Coordenadas -->
+    <div id="layer-controls">
+        <h4>Camadas</h4>
+        <input type="checkbox" id="toggle-geofence-layer" checked> Mostrar Geofence
+        <br>
+        <input type="checkbox" id="toggle-tracking-layer" checked> Mostrar Caminhamento
+        <br>
+        <input type="checkbox" id="toggle-poi-layer" checked> Mostrar PoIs
+        <div id="coordinates-display">
+            <p>Coordenadas:</p>
+            <p id="lat-display">Lat: -</p>
+            <p id="lon-display">Lon: -</p>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script>
+        let map, geofenceLayer, poiLayer, geofenceCircle;
+        let trackingPolyline, trackingInterval, trackPoints = [];
+        let poisFound = [];
+        let originLat, originLon;
+
+        function initMap() {
+            map = L.map('map', {
+                center: [-23.5505, -46.6333],
+                zoom: 13,
+                layers: [
+                    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                        attribution: '&copy; <a href="https://carto.com/">CartoDB</a>',
+                        maxZoom: 19
+                    })
+                ]
+            });
+
+            geofenceLayer = L.layerGroup().addTo(map);
+            poiLayer = L.layerGroup().addTo(map);
+            trackingPolyline = L.polyline(trackPoints, { color: 'blue' }).addTo(map);
+
+            // Função de controle de camadas
+            document.getElementById('toggle-geofence-layer').addEventListener('change', function(e) {
+                if (e.target.checked) {
+                    map.addLayer(geofenceLayer);
+                } else {
+                    map.removeLayer(geofenceLayer);
+                }
+            });
+
+            document.getElementById('toggle-tracking-layer').addEventListener('change', function(e) {
+                if (e.target.checked) {
+                    map.addLayer(trackingPolyline);
+                } else {
+                    map.removeLayer(trackingPolyline);
+                }
+            });
+
+            document.getElementById('toggle-poi-layer').addEventListener('change', function(e) {
+                if (e.target.checked) {
+                    map.addLayer(poiLayer);
+                } else {
+                    map.removeLayer(poiLayer);
+                }
+            });
+
+            // Atualiza coordenadas ao mover o mouse sobre o mapa
+            map.on('mousemove', function(e) {
+                document.getElementById('lat-display').textContent = `Lat: ${e.latlng.lat.toFixed(5)}`;
+                document.getElementById('lon-display').textContent = `Lon: ${e.latlng.lng.toFixed(5)}`;
+            });
+
+            // Botões de Controle
+            document.getElementById('current-position-btn').addEventListener('click', getCurrentPosition);
+            document.getElementById('create-geofence-btn').addEventListener('click', createGeofence);
+            document.getElementById('start-tracking-btn').addEventListener('click', startTracking);
+            document.getElementById('stop-tracking-btn').addEventListener('click', stopTracking);
+            document.getElementById('calculate-route-btn').addEventListener('click', calculateRoute);
+            document.getElementById('export-tracking-geojson-btn').addEventListener('click', exportTrackingGeoJSON);
+            document.getElementById('execute-poi-search-btn').addEventListener('click', executePoiSearch);
+            document.getElementById('export-pois-geojson-btn').addEventListener('click', exportPoisGeoJSON);
+            document.getElementById('search-address-btn').addEventListener('click', searchAddress);
+        }
+
+        // Função para capturar a posição atual do usuário
+        function getCurrentPosition() {
+            navigator.geolocation.getCurrentPosition(position => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                originLat = lat;
+                originLon = lon;
+                map.setView([lat, lon], 15);
+            }, error => {
+                alert("Erro ao obter localização. Verifique se a permissão de localização está ativa.");
+            });
+        }
+
+        // Função para iniciar o rastreamento
+        function startTracking() {
+            const interval = parseInt(document.getElementById('tracking-interval').value);
+            trackingInterval = setInterval(() => {
+                navigator.geolocation.getCurrentPosition(position => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    trackPoints.push([lat, lon]);
+                    trackingPolyline.setLatLngs(trackPoints);
+                    map.setView([lat, lon], 15);
+                }, error => {
+                    alert("Erro ao obter localização. Verifique se a permissão de localização está ativa.");
+                });
+            }, interval);
+        }
+
+        // Função para parar o rastreamento
+        function stopTracking() {
+            clearInterval(trackingInterval);
+        }
+
+        // Função para exportar GeoJSON do rastreamento
+        function exportTrackingGeoJSON() {
+            const geojson = {
+                type: "FeatureCollection",
+                features: [{
+                    type: "Feature",
+                    geometry: {
+                        type: "LineString",
+                        coordinates: trackPoints.map(point => [point[1], point[0]])
+                    },
+                    properties: {
+                        type: "Caminhamento"
+                    }
+                }]
+            };
+            downloadGeoJSON(geojson, "tracking.geojson");
+        }
+
+        // Função para criar a geofence
+        function createGeofence() {
+            const radius = parseInt(document.getElementById('geofence-radius').value);
+            navigator.geolocation.getCurrentPosition(position => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                if (geofenceCircle) {
+                    geofenceLayer.removeLayer(geofenceCircle);
+                }
+                geofenceCircle = L.circle([lat, lon], {
+                    radius: radius,
+                    color: 'red',
+                    fillOpacity: 0.2
+                }).addTo(geofenceLayer);
+                map.setView([lat, lon], 15);
+            }, error => {
+                alert("Erro ao obter localização. Verifique se a permissão de localização está ativa.");
+            });
+        }
+
+        // Função para buscar PoIs
+        async function executePoiSearch() {
+            const selectedPOIs = Array.from(document.getElementById('poi-select').selectedOptions).map(option => option.value);
+            if (selectedPOIs.length === 0) return alert("Selecione ao menos uma categoria.");
+
+            const radius = parseInt(document.getElementById('search-radius').value);
+            const latlng = map.getCenter();
+            const query = `
+                [out:json];
+                (
+                    ${selectedPOIs.map(type => `node["amenity"="${type}"](around:${radius},${latlng.lat},${latlng.lng});`).join('')}
+                );
+                out center;
+            `;
+            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+
+            try {
+                const response = await axios.get(url);
+                const pois = response.data.elements;
+
+                pois.forEach(poi => {
+                    const poiLat = poi.lat || poi.center.lat;
+                    const poiLon = poi.lon || poi.center.lon;
+                    const name = poi.tags.name || 'Sem nome';
+                    createCircleMarker(poiLat, poiLon, 'green', name);
+                    poisFound.push(poi);
+                });
+
+            } catch (error) {
+                console.error('Erro ao buscar PoIs:', error);
+            }
+        }
+
+        // Função para exportar GeoJSON dos PoIs
+        function exportPoisGeoJSON() {
+            const geojson = {
+                type: "FeatureCollection",
+                features: poisFound.map(poi => ({
+                    type: "Feature",
+                    geometry: {
+                        type: "Point",
+                        coordinates: [poi.lon || poi.center.lon, poi.lat || poi.center.lat]
+                    },
+                    properties: {
+                        name: poi.tags.name || 'Sem nome',
+                        type: poi.tags.amenity || 'Desconhecido'
+                    }
+                }))
+            };
+            downloadGeoJSON(geojson, "pois.geojson");
+        }
+
+        // Função para calcular rota
+        async function calculateRoute() {
+            const destination = document.getElementById('destination-input').value;
+            let destinationCoords;
+            
+            if (destination.includes(',')) {
+                const coords = destination.split(',').map(coord => parseFloat(coord.trim()));
+                destinationCoords = { lat: coords[0], lon: coords[1] };
+            } else {
+                destinationCoords = await geocodeAddress(destination);
+            }
+
+            const apiUrl = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=YOUR_API_KEY&start=${originLon},${originLat}&end=${destinationCoords.lon},${destinationCoords.lat}`;
+            const response = await axios.get(apiUrl);
+            const routeCoordinates = response.data.features[0].geometry.coordinates;
+
+            // Adiciona a rota ao mapa
+            const routePolyline = L.polyline(routeCoordinates.map(c => [c[1], c[0]]), { color: 'green' }).addTo(map);
+            map.fitBounds(routePolyline.getBounds());
+        }
+
+        // Função auxiliar para download de GeoJSON
+        function downloadGeoJSON(data, filename) {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href", dataStr);
+            downloadAnchorNode.setAttribute("download", filename);
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+        }
+
+        async function geocodeAddress(address) {
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
+            try {
+                const response = await axios.get(url);
+                if (response.data.length > 0) {
+                    return {
+                        lat: parseFloat(response.data[0].lat),
+                        lon: parseFloat(response.data[0].lon)
+                    };
+                } else {
+                    alert('Endereço não encontrado.');
+                    return null;
+                }
+            } catch (error) {
+                console.error(error);
+                alert('Erro ao geocodificar o endereço.');
+                return null;
+            }
+        }
+
+        function createCircleMarker(lat, lon, color, name) {
+            const marker = L.circleMarker([lat, lon], {
+                radius: 8,
+                fillColor: color,
+                color: color,
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.8
+            }).addTo(poiLayer);
+
+            if (name) {
+                marker.bindPopup(`<b>${name}</b>`);
+            }
+
+            marker.on('mouseover', function() {
+                marker.openPopup();
+            });
+        }
+
+        initMap();
+    </script>
+</body>
+</html>
