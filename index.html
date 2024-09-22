@@ -10,15 +10,20 @@
             font-family: Arial, sans-serif;
             background-color: #1a1a1a;
             color: #f0f0f0;
+            margin: 0;
+            padding: 0;
         }
+
         h3, h4, label, p {
             color: #ffffff;
         }
+
         #map {
-            height: 600px;
+            height: 500px;
             width: 100%;
             margin-top: 10px;
         }
+
         input, select, button {
             margin: 5px 0;
             padding: 10px;
@@ -26,20 +31,43 @@
             color: white;
             border: none;
             border-radius: 5px;
+            width: 100%;
         }
+
         input::placeholder {
             color: #aaa;
         }
+
         button:hover {
             background-color: #444;
             cursor: pointer;
         }
-        #controls {
+
+        .section {
             margin: 10px;
         }
-        .section {
-            margin: 20px 0;
+
+        /* Responsividade - para telas menores */
+        @media (max-width: 768px) {
+            h3, h4 {
+                font-size: 1.2rem;
+            }
+
+            input, select, button {
+                padding: 8px;
+                font-size: 0.9rem;
+            }
+
+            #map {
+                height: 300px;
+            }
+
+            .section {
+                margin: 5px;
+            }
         }
+
+        /* Controles de camadas e coordenadas */
         #layer-controls {
             position: absolute;
             top: 20px;
@@ -47,10 +75,12 @@
             background-color: rgba(0, 0, 0, 0.7);
             padding: 15px;
             border-radius: 8px;
+            font-size: 0.8rem;
         }
+
         #coordinates-display {
             margin-top: 10px;
-            font-size: 12px;
+            font-size: 0.8rem;
         }
     </style>
 </head>
@@ -87,7 +117,7 @@
         <button id="export-tracking-geojson-btn">Exportar GeoJSON Rastreamento</button>
     </div>
 
-    <!-- Seção 4: Mapa -->
+    <!-- Mapa -->
     <div id="map"></div>
 
     <!-- Seção 5: Busca de PoIs -->
@@ -284,79 +314,6 @@
             });
         }
 
-        // Função para buscar PoIs
-        async function executePoiSearch() {
-            const selectedPOIs = Array.from(document.getElementById('poi-select').selectedOptions).map(option => option.value);
-            if (selectedPOIs.length === 0) return alert("Selecione ao menos uma categoria.");
-
-            const radius = parseInt(document.getElementById('search-radius').value);
-            const latlng = map.getCenter();
-            const query = `
-                [out:json];
-                (
-                    ${selectedPOIs.map(type => `node["amenity"="${type}"](around:${radius},${latlng.lat},${latlng.lng});`).join('')}
-                );
-                out center;
-            `;
-            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-
-            try {
-                const response = await axios.get(url);
-                const pois = response.data.elements;
-
-                pois.forEach(poi => {
-                    const poiLat = poi.lat || poi.center.lat;
-                    const poiLon = poi.lon || poi.center.lon;
-                    const name = poi.tags.name || 'Sem nome';
-                    createCircleMarker(poiLat, poiLon, 'green', name);
-                    poisFound.push(poi);
-                });
-
-            } catch (error) {
-                console.error('Erro ao buscar PoIs:', error);
-            }
-        }
-
-        // Função para exportar GeoJSON dos PoIs
-        function exportPoisGeoJSON() {
-            const geojson = {
-                type: "FeatureCollection",
-                features: poisFound.map(poi => ({
-                    type: "Feature",
-                    geometry: {
-                        type: "Point",
-                        coordinates: [poi.lon || poi.center.lon, poi.lat || poi.center.lat]
-                    },
-                    properties: {
-                        name: poi.tags.name || 'Sem nome',
-                        type: poi.tags.amenity || 'Desconhecido'
-                    }
-                }))
-            };
-            downloadGeoJSON(geojson, "pois.geojson");
-        }
-
-        // Função para calcular rota
-        async function calculateRoute() {
-            const destination = document.getElementById('destination-input').value;
-            let destinationCoords;
-            
-            if (destination.includes(',')) {
-                const coords = destination.split(',').map(coord => parseFloat(coord.trim()));
-                destinationCoords = { lat: coords[0], lon: coords[1] };
-            } else {
-                destinationCoords = await geocodeAddress(destination);
-            }
-
-            const apiUrl = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=YOUR_API_KEY&start=${originLon},${originLat}&end=${destinationCoords.lon},${destinationCoords.lat}`;
-            const response = await axios.get(apiUrl);
-            const routeCoordinates = response.data.features[0].geometry.coordinates;
-
-            // Adiciona a rota ao mapa
-            const routePolyline = L.polyline(routeCoordinates.map(c => [c[1], c[0]]), { color: 'green' }).addTo(map);
-            map.fitBounds(routePolyline.getBounds());
-        }
-
         // Função auxiliar para download de GeoJSON
         function downloadGeoJSON(data, filename) {
             const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(data, null, 2));
@@ -366,45 +323,6 @@
             document.body.appendChild(downloadAnchorNode);
             downloadAnchorNode.click();
             downloadAnchorNode.remove();
-        }
-
-        async function geocodeAddress(address) {
-            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`;
-            try {
-                const response = await axios.get(url);
-                if (response.data.length > 0) {
-                    return {
-                        lat: parseFloat(response.data[0].lat),
-                        lon: parseFloat(response.data[0].lon)
-                    };
-                } else {
-                    alert('Endereço não encontrado.');
-                    return null;
-                }
-            } catch (error) {
-                console.error(error);
-                alert('Erro ao geocodificar o endereço.');
-                return null;
-            }
-        }
-
-        function createCircleMarker(lat, lon, color, name) {
-            const marker = L.circleMarker([lat, lon], {
-                radius: 8,
-                fillColor: color,
-                color: color,
-                weight: 1,
-                opacity: 1,
-                fillOpacity: 0.8
-            }).addTo(poiLayer);
-
-            if (name) {
-                marker.bindPopup(`<b>${name}</b>`);
-            }
-
-            marker.on('mouseover', function() {
-                marker.openPopup();
-            });
         }
 
         initMap();
